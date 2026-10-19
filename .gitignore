@@ -4,3 +4,6 @@ dist
 reports/*
 !reports/.gitkeep
 *.tsbuildinfo
+datasets/*
+!datasets/.gitkeep
+!datasets/users.example.json

@@ -17,7 +17,9 @@ import type { MetricPointDTO, RunType } from '@siteguard/contracts';
 export interface Target {
   id: string; name: string; baseUrl: string; extraHosts: string[]; allowPrivateNetwork: boolean;
   activeScanAuthorized: boolean; maxRps: number; maxDurationSec: number; maxRequests: number;
+  stressAuthorized: boolean; stressMaxBots: number; stressMaxRps: number; stressMaxDurationSec: number; stressMaxRequests: number; containerName: string | null;
 }
+export interface Journey { id: string; targetId: string; name: string; steps: import('@siteguard/contracts').JourneyStep[]; warnings?: string[] }
 export interface Run {
   id: string; targetId: string; type: RunType; status: string; config: any; summary: any; error: string | null;
   createdAt: string; startedAt: string | null; finishedAt: string | null; target?: Partial<Target>;

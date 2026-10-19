@@ -1,3 +1,4 @@
+import { statusMeaning, type StressSummary } from '@siteguard/contracts';
 import type { CrawlPage, Finding, MetricPoint, Run, Target } from '@siteguard/database';
 
 export type FullRun = Run & { target: Target; metrics: MetricPoint[]; pages: CrawlPage[]; findings: Finding[] };
@@ -14,11 +15,31 @@ export function runToCsv(run: FullRun): string {
   if (run.type === 'LOAD')
     return toCsv(['timestamp', 'rps', 'p50_ms', 'p95_ms', 'p99_ms', 'error_rate', 'vus'],
       run.metrics.map((m) => [m.ts.toISOString(), m.rps, m.p50.toFixed(1), m.p95.toFixed(1), m.p99.toFixed(1), m.errorRate.toFixed(4), m.vus]));
+  if (run.type === 'STRESS') {
+    const sum = run.summary as unknown as StressSummary | null;
+    return toCsv(['bots', 'req_per_s', 'p50_ms', 'p95_ms', 'p99_ms', 'error_rate', 'requests'],
+      (sum?.levels ?? []).map((l) => [l.bots, l.rps.toFixed(1), l.p50.toFixed(1), l.p95.toFixed(1), l.p99.toFixed(1), l.errorRate.toFixed(4), l.requests]));
+  }
   if (run.type === 'CRAWL')
     return toCsv(['url', 'status', 'depth', 'title', 'description', 'load_ms', 'found_on', 'issues'],
       run.pages.map((p) => [p.url, p.status, p.depth, p.title, p.description, p.loadMs, p.foundOn, p.issues.join('; ')]));
   return toCsv(['severity', 'source', 'title', 'url', 'status', 'description', 'evidence', 'remediation'],
     run.findings.map((f) => [f.severity, f.source, f.title, f.url, f.status, f.description, f.evidence, f.remediation]));
+}
+
+function stressHtml(s: StressSummary): string {
+  const kv = (k: string, v: unknown) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
+  const head = [
+    kv('Requests', s.totalRequests), kv('Error rate', `${(s.errorRate * 100).toFixed(2)}%`), kv('Peak bots', s.peakBots), kv('Peak req/s', s.peakRps.toFixed(1)),
+    kv('Breaking point', s.breakingPoint ? `${s.breakingPoint.bots} bots` : 'not reached'),
+    kv('Recovery', s.recovery ? (s.recovery.recovered ? `${s.recovery.secondsToBaseline}s` : 'did not recover') : '—'),
+  ].join('');
+  const health = s.health.map((h) => `<p class="f ${h.verdict === 'bad' ? 'HIGH' : h.verdict === 'warn' ? 'MEDIUM' : 'LOW'}"><b>${esc(h.verdict.toUpperCase())}</b> ${esc(h.text)}</p>`).join('');
+  const hyp = `</div><p><b>Hypothesis:</b> ${esc(s.hypothesis)}</p>${health}${s.patterns.map((p) => `<p class="fix">${esc(p.message)}</p>`).join('')}<div class="kvs">`;
+  const levels = `</div><h2>Load by interval</h2><table><tr><th>Bots</th><th>req/s</th><th>p50</th><th>p95</th><th>p99</th><th>Errors</th></tr>${s.levels.map((l) => `<tr><td>${l.bots}</td><td>${l.rps.toFixed(1)}</td><td>${Math.round(l.p50)} ms</td><td>${Math.round(l.p95)} ms</td><td>${Math.round(l.p99)} ms</td><td>${(l.errorRate * 100).toFixed(1)}%</td></tr>`).join('')}</table>`;
+  const steps = `<h2>By journey step</h2><table><tr><th>Journey</th><th>Step</th><th>Requests</th><th>p95</th><th>Errors</th></tr>${s.steps.map((t) => `<tr><td>${esc(t.journey)}</td><td>${esc(t.step)}</td><td>${t.requests}</td><td>${Math.round(t.p95)} ms</td><td>${(t.errorRate * 100).toFixed(1)}%</td></tr>`).join('')}</table>`;
+  const codes = `<h2>Status codes</h2><table><tr><th>Code</th><th>Count</th><th>Meaning</th><th>Usual cause</th></tr>${Object.entries(s.statusCounts).sort().map(([c, n]) => { const m = statusMeaning(c); return `<tr><td>${esc(c === '0' ? 'no response' : c)}</td><td>${n}</td><td>${esc(m.meaning)}</td><td>${esc(m.cause)}</td></tr>`; }).join('')}</table>`;
+  return head + hyp + levels + steps + codes;
 }
 
 export function runToHtml(run: FullRun): string {
@@ -28,6 +49,7 @@ export function runToHtml(run: FullRun): string {
   if (run.type === 'LOAD')
     summary = [kv('Requests', s.totalRequests), kv('Error rate', `${((s.errorRate ?? 0) * 100).toFixed(2)}%`), kv('Avg req/s', (s.avgRps ?? 0).toFixed(1)),
       kv('p50', `${(s.p50 ?? 0).toFixed(0)} ms`), kv('p95', `${(s.p95 ?? 0).toFixed(0)} ms`), kv('p99', `${(s.p99 ?? 0).toFixed(0)} ms`), kv('Max', `${(s.maxMs ?? 0).toFixed(0)} ms`)].join('');
+  else if (run.type === 'STRESS') summary = stressHtml(s as StressSummary);
   else if (run.type === 'CRAWL')
     summary = [kv('Pages', s.pagesCrawled), kv('Broken', s.brokenLinks), kv('Redirects', s.redirects), kv('No title', s.missingTitle), kv('No description', s.missingDescription), kv('Avg load', `${(s.avgLoadMs ?? 0).toFixed(0)} ms`)].join('');
   else summary = [kv('Findings', s.findings), ...Object.entries(s.bySeverity ?? {}).map(([k, v]) => kv(k, v))].join('');

@@ -17,17 +17,35 @@ model Target {
   maxRps               Int      @default(5)
   maxDurationSec       Int      @default(120)
   maxRequests          Int      @default(5000)
+  stressAuthorized     Boolean  @default(false)
+  stressMaxBots        Int      @default(50)
+  stressMaxRps         Int      @default(100)
+  stressMaxDurationSec Int      @default(600)
+  stressMaxRequests    Int      @default(100000)
+  containerName        String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   runs                 Run[]
   findings             Finding[]
+  journeys             Journey[]
+}
+
+model Journey {
+  id        String   @id @default(cuid())
+  targetId  String
+  target    Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  name      String
+  steps     Json
+  createdAt DateTime @default(now())
+
+  @@index([targetId])
 }
 
 model Run {
   id         String    @id @default(cuid())
   targetId   String
   target     Target    @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  type       String // LOAD | CRAWL | SECURITY
+  type       String // LOAD | CRAWL | SECURITY | STRESS
   status     String    @default("QUEUED")
   config     Json
   summary    Json?
@@ -56,6 +74,8 @@ model MetricPoint {
   errorRate Float
   vus       Int
   requests  Int
+  bots      Int?
+  phase     String?
 
   @@index([runId, ts])
 }
@@ -83,7 +103,7 @@ model Finding {
   run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
   targetId    String
   target      Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  source      String // PASSIVE | CRAWLER | ZAP
+  source      String // PASSIVE | CRAWLER | ZAP | STRESS
   severity    String
   title       String
   description String

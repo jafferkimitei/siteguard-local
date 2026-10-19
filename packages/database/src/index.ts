@@ -18,6 +18,7 @@ const Env = z.object({
 });
 export const env = Env.parse(process.env);
 export const reportsDir = resolve(ROOT_DIR, env.REPORTS_DIR);
+export const datasetsDir = resolve(ROOT_DIR, 'datasets');
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const prisma = globalForPrisma.prisma ?? new PrismaClient();

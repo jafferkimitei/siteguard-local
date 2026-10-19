@@ -57,11 +57,12 @@ export const ErrorBox = ({ error }: { error?: string | null }) =>
 export const ms = (n?: number) => (n === undefined || n === null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(2)} s` : `${n.toFixed(n < 10 ? 1 : 0)} ms`);
 export const pct = (n?: number) => (n === undefined ? '—' : `${(n * 100).toFixed(n > 0 && n < 0.01 ? 2 : 1)}%`);
 export const when = (d?: string | null) => (d ? new Date(d).toLocaleString() : '—');
-export const TYPE_LABEL = { LOAD: 'Load test', CRAWL: 'Crawl', SECURITY: 'Security scan' } as const;
+export const TYPE_LABEL = { LOAD: 'Load test', CRAWL: 'Crawl', SECURITY: 'Security scan', STRESS: 'Stress test' } as const;
 
 /** One-line result text for a run, shared by every run table. */
 export const runResult = (r: Pick<Run, 'type' | 'summary' | 'error'>) =>
   !r.summary ? r.error ?? '—'
   : r.type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${pct(r.summary.errorRate)} err`
+  : r.type === 'STRESS' ? (r.summary.breakingPoint ? `breaks at ${r.summary.breakingPoint.bots} bots · ${r.summary.totalRequests} req` : `no break up to ${r.summary.peakBots} bots · ${r.summary.totalRequests} req`)
   : r.type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken`
   : `${r.summary.findings} findings`;

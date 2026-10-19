@@ -5,6 +5,7 @@ import { audit, errMessage, isCancelled, publish, redis, type RunnerResult, type
 import { runLoad } from './load';
 import { runCrawl } from './crawler';
 import { runSecurity } from './security';
+import { runStress } from './stress';
 
 async function finish(runId: string, status: string, summary?: unknown, error?: string) {
   await prisma.run.update({
@@ -28,6 +29,7 @@ async function handleRun(runId: string) {
     let result: RunnerResult;
     if (run.type === 'LOAD') result = await runLoad(run);
     else if (run.type === 'CRAWL') result = await runCrawl(run);
+    else if (run.type === 'STRESS') result = await runStress(run);
     else result = await runSecurity(run);
     await finish(runId, result.status, result.summary, result.error);
   } catch (err) {

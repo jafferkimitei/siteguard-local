@@ -55,6 +55,8 @@ export function Compare() {
     <div className="space-y-6">
       <div className="text-xs text-muted"><Link to="/reports" className="hover:underline">Reports</Link> / Compare</div>
       <h1 className="text-xl font-semibold">Comparing two {a.type.toLowerCase()} runs</h1>
+      {d.warning && <div className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-sm text-orange-200">{d.warning}</div>}
+      {d.configDiff?.length === 1 && <p className="text-sm text-emerald-300">One setting differs between these runs: <b>{d.configDiff[0]}</b>.</p>}
       <div className="grid gap-3 md:grid-cols-2">
         {[['Baseline (A)', a], ['Candidate (B)', b]].map(([label, r]: any) => (
           <Card key={r.id} title={label}><Link to={`/runs/${r.id}`} className="text-accent">{when(r.createdAt)}</Link> · {r.target}</Card>))}
@@ -63,6 +65,14 @@ export function Compare() {
         <Card title="Performance"><table><thead><tr><th>Metric</th><th>A</th><th>B</th><th>Change</th></tr></thead><tbody>
           {rows.map(([k, label, fmt, lower = true]) => (<tr key={k}><td>{label}</td><td>{fmt(a.summary[k])}</td><td>{fmt(b.summary[k])}</td><td><Delta a={a.summary[k]} b={b.summary[k]} fmt={fmt} lowerIsBetter={lower} /></td></tr>))}
         </tbody></table><p className="mt-3 text-xs text-muted">Only comparable when both runs used the same paths and request rate. A: {a.config.rps} req/s · B: {b.config.rps} req/s.</p></Card>
+      )}
+      {a.type === 'STRESS' && a.summary && b.summary && (
+        <Card title="Stress results"><table><thead><tr><th>Metric</th><th>A</th><th>B</th></tr></thead><tbody>
+          <tr><td>Breaking point</td><td>{a.summary.breakingPoint ? `${a.summary.breakingPoint.bots} bots` : 'not found'}</td><td>{b.summary.breakingPoint ? `${b.summary.breakingPoint.bots} bots` : 'not found'}</td></tr>
+          <tr><td>Peak req/s</td><td>{a.summary.peakRps.toFixed(1)}</td><td>{b.summary.peakRps.toFixed(1)}</td></tr>
+          <tr><td>Error rate</td><td>{pct(a.summary.errorRate)}</td><td>{pct(b.summary.errorRate)}</td></tr>
+          <tr><td>Recovery</td><td>{a.summary.recovery ? (a.summary.recovery.recovered ? `${a.summary.recovery.secondsToBaseline}s` : 'none') : '—'}</td><td>{b.summary.recovery ? (b.summary.recovery.recovered ? `${b.summary.recovery.secondsToBaseline}s` : 'none') : '—'}</td></tr>
+        </tbody></table></Card>
       )}
       {a.type !== 'LOAD' && <>
         <div className="grid grid-cols-3 gap-3 text-center">

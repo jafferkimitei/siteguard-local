@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, type Finding, type Metric, type Run } from '../api';
 import { Badge, Btn, Card, ErrorBox, Stat, TYPE_LABEL, ms, pct, when } from '../ui';
+import StressView from './StressView';
 
 const AXIS = { tick: { fill: '#8b95a5', fontSize: 11 } };
 const TIP = { contentStyle: { background: '#161b22', border: '1px solid #262d37' } };
@@ -112,6 +113,8 @@ export default function RunDetail() {
         </div>
         <Card title="Configuration"><pre className="overflow-auto font-mono text-xs text-muted">{JSON.stringify(run.config, null, 2)}</pre></Card>
       </>}
+
+      {run.type === 'STRESS' && <StressView run={run} points={points} active={!!active} />}
 
       {run.type === 'CRAWL' && <>
         {s && <div className="grid grid-cols-2 gap-3 md:grid-cols-6">

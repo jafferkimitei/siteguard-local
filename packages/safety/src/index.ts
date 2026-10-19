@@ -1,6 +1,9 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { estimateRequests, type LoadConfig, type StopRules } from '@siteguard/contracts';
+import {
+  DATA_REF, ENV_REF, HARD_MAX_BROWSER_BOTS, botSchedule, estimateRequests, estimateStressRequests, minGapMs, scheduleStats, stepRefs,
+  type JourneyInput, type LoadConfig, type Stage, type StopRules, type StressConfig,
+} from '@siteguard/contracts';
 
 export { estimateRequests };
 
@@ -141,3 +144,72 @@ export function percentile(sorted: number[], p: number): number {
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
   return sorted[idx]!;
 }
+
+// ---------------- Stress limits ----------------
+
+export interface StressTargetPolicy extends TargetPolicy {
+  stressAuthorized: boolean;
+  stressMaxBots: number;
+  stressMaxRps: number;
+  stressMaxDurationSec: number;
+  stressMaxRequests: number;
+}
+
+export interface PlannedStress {
+  stages: Stage[];
+  durationSec: number;
+  peakBots: number;
+  /** Pause every bot takes after each request so the req/s ceiling holds by construction. */
+  gapMs: number;
+  estimatedRequests: number;
+  /** Peak throughput the pacing allows; when reached, a plateau is the ceiling, not the server. */
+  maxPossibleRps: number;
+}
+
+/** Reject (never clamp) stress plans that are unauthorised or exceed the target's stress ceilings. */
+export function validateStressPlan(cfg: StressConfig, target: StressTargetPolicy): PlannedStress {
+  if (!target.stressAuthorized)
+    throw new SafetyError('Stress tests require this target to be marked "stress tests authorised" (a separate opt-in from normal load tests)');
+  if (cfg.maxBots > target.stressMaxBots) throw new SafetyError(`Max bots ${cfg.maxBots} exceeds this target's stress ceiling of ${target.stressMaxBots}`);
+  if (cfg.profile === 'quick' && cfg.concurrency > target.stressMaxBots)
+    throw new SafetyError(`Concurrency ${cfg.concurrency} exceeds this target's stress ceiling of ${target.stressMaxBots} bots`);
+  if (cfg.startBots > cfg.maxBots) throw new SafetyError('Start bots cannot be higher than max bots');
+  if (cfg.engine === 'hybrid' && cfg.browserBots > HARD_MAX_BROWSER_BOTS) throw new SafetyError(`Browser bots are capped at ${HARD_MAX_BROWSER_BOTS}`);
+  const stages = botSchedule(cfg);
+  const { durationSec, peakBots } = scheduleStats(stages);
+  if (cfg.profile !== 'quick' && durationSec > target.stressMaxDurationSec)
+    throw new SafetyError(`The bot schedule runs ${durationSec}s, over this target's stress limit of ${target.stressMaxDurationSec}s`);
+  if (cfg.profile === 'quick' && cfg.requests > target.stressMaxRequests)
+    throw new SafetyError(`${cfg.requests} requests exceeds this target's stress budget of ${target.stressMaxRequests}`);
+  const bots = cfg.profile === 'quick' ? cfg.concurrency : peakBots;
+  const gapMs = minGapMs(bots, target.stressMaxRps);
+  const estimatedRequests = estimateStressRequests(cfg, target.stressMaxRps);
+  if (estimatedRequests > target.stressMaxRequests)
+    throw new SafetyError(`This plan can send ~${estimatedRequests} requests, over the target's stress budget of ${target.stressMaxRequests}`);
+  const maxPossibleRps = gapMs > 0 ? Math.floor((1000 * bots) / gapMs) : target.stressMaxRps;
+  return { stages, durationSec, peakBots: bots, gapMs, estimatedRequests, maxPossibleRps };
+}
+
+/** Throws if any journey step could leave the approved scope or reference something it should not. */
+export async function validateJourney(journey: JourneyInput, target: TargetPolicy, opts: { hasDataset?: boolean } = {}): Promise<void> {
+  const declared = new Set<string>();
+  for (const [i, step] of journey.steps.entries()) {
+    for (const ref of stepRefs(step)) {
+      if (ENV_REF.test(ref)) continue;
+      const data = DATA_REF.exec(ref);
+      if (data) {
+        if (!opts.hasDataset) throw new SafetyError(`Step "${step.name}" uses {{${ref}}} but the run has no dataset selected`);
+        continue;
+      }
+      if (ref.startsWith('env.')) throw new SafetyError(`Step "${step.name}": {{${ref}}} is not allowed; only variables named SG_... can be read from the environment`);
+      if (!declared.has(ref)) throw new SafetyError(`Step "${step.name}" (#${i + 1}) uses {{${ref}}} before an earlier step extracts it`);
+    }
+    for (const e of step.extract) declared.add(e.var);
+    // Substitute placeholders, then make sure the path still lands on an approved host.
+    const probe = step.path.replace(/\{\{[^}]*\}\}/g, 'x');
+    if (probe.startsWith('//') || !probe.startsWith('/')) throw new SafetyError(`Step "${step.name}": path must be a single-slash relative path`);
+    await assertDestinationAllowed(new URL(probe, target.baseUrl).toString(), target);
+  }
+}
+
+export { datasetPath, loadDataset } from './dataset';

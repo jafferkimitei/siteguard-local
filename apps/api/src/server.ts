@@ -164,9 +164,10 @@ app.post('/runs', async (req, reply) => {
     for (const m of input.config.mix) for (const p of m.paths ?? []) await assertDestinationAllowed(new URL(p, target.baseUrl).toString(), target);
   }
 
-  const active = await prisma.run.count({ where: { targetId: target.id, status: { in: ['QUEUED', 'RUNNING'] }, type: input.type } });
-  if (active) throw new SafetyError(`A ${input.type} run is already queued or running for this target`);
-
+  // Runs of any type, on the same or different targets, may run concurrently (including two LOAD/STRESS
+  // runs stacked on one target — each one's own ceilings still apply individually, but their combined
+  // rate against that target is not checked). The worker still serialises ZAP scans internally because
+  // of a Docker networking constraint, independent of this.
   const run = await prisma.run.create({ data: { targetId: target.id, type: input.type, config: input.config as never } });
   await audit(run.id, 'queued', `${input.type} run queued for ${target.baseUrl}`, input.config);
   await queue.add('run', { runId: run.id }, { jobId: run.id, removeOnComplete: 100, removeOnFail: 100 });

@@ -15,6 +15,8 @@ const Env = z.object({
   REPORTS_DIR: z.string().default('./reports'),
   K6_MODE: z.enum(['auto', 'local', 'docker']).default('auto'),
   K6_DOCKER_IMAGE: z.string().default('grafana/k6:latest'),
+  /** Runs processed at once by the worker. Each run can spawn its own k6/Docker process or Chromium instance, so this is bounded by your machine's CPU/RAM, not by SiteGuard. */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
 });
 export const env = Env.parse(process.env);
 export const reportsDir = resolve(ROOT_DIR, env.REPORTS_DIR);

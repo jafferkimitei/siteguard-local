@@ -410,8 +410,41 @@ export interface StressSummary {
   recovery: Recovery | null;
   integrity: { checks: number; failures: number } | null;
   vitals: { sessions: number; ttfb: number; fcp: number; lcp: number; cls: number } | null;
+  browser: { sessions: number; failedSteps: number; consoleErrors: string[]; screenshot: string | null } | null;
+  /** Real server-side numbers, only when the target runs in a local Docker container. */
+  resources: ResourceSummary | null;
   driftPct: number | null;
   ceilingReached: boolean;
   hypothesis: string;
   abortReason?: string;
+}
+
+// ---- Container resource sampling (local Docker targets only) ----
+
+export interface ResourceSample { cpuPct: number; memMb: number }
+export interface ResourceSummary { samples: number; cpuAvg: number; cpuMax: number; memStartMb: number; memEndMb: number; memMaxMb: number }
+
+const MEM_UNITS: Record<string, number> = { b: 1 / 1_048_576, kb: 1 / 1024, kib: 1 / 1024, mb: 1, mib: 1, gb: 1024, gib: 1024 };
+
+/** Parse one `docker stats --format '{{.CPUPerc}}|{{.MemUsage}}'` line, e.g. "12.34%|45.6MiB / 7.7GiB". */
+export function parseDockerStatsLine(line: string): ResourceSample | null {
+  const m = /^\s*([\d.]+)%\s*\|\s*([\d.]+)\s*([A-Za-z]+)/.exec(line);
+  if (!m) return null;
+  const unit = MEM_UNITS[m[3]!.toLowerCase()];
+  if (unit === undefined) return null;
+  return { cpuPct: Number(m[1]), memMb: Number(m[2]) * unit };
+}
+
+export function summariseResources(samples: ResourceSample[]): ResourceSummary | null {
+  if (samples.length === 0) return null;
+  const cpu = samples.map((s) => s.cpuPct);
+  const mem = samples.map((s) => s.memMb);
+  return {
+    samples: samples.length,
+    cpuAvg: cpu.reduce((a, b) => a + b, 0) / cpu.length,
+    cpuMax: Math.max(...cpu),
+    memStartMb: mem[0]!,
+    memEndMb: mem[mem.length - 1]!,
+    memMaxMb: Math.max(...mem),
+  };
 }

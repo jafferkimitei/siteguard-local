@@ -1,39 +1,21 @@
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { chmodSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   StressConfig, buildStressScript, classifyFailurePattern, detectBreakingPoint, evaluateRecovery, healthVerdicts, latencyDrift, stepRefs, ENV_REF,
   type BreakingPoint, type JourneyInput, type LevelStats, type MetricPointDTO, type Phase, type Recovery, type Stage, type StepStats, type StressSummary,
 } from '@siteguard/contracts';
-import { ROOT_DIR, prisma } from '@siteguard/database';
-import { SafetyError, assertDestinationAllowed, datasetPath, evaluateStopRules, percentile, validateJourney, validateStressPlan, type PlannedStress } from '@siteguard/safety';
+import { datasetsDir, prisma } from '@siteguard/database';
+import { SafetyError, assertDestinationAllowed, evaluateStopRules, loadDataset, percentile, validateJourney, validateStressPlan, type PlannedStress } from '@siteguard/safety';
 import { audit, errMessage, saveFindings, type RunnerResult, type RunWithTarget } from './common';
 import { bottleneckFindings } from './bottlenecks';
 import { METADATA_CIDRS, MetricsCollector, PRIVATE_CIDRS, engineError, runK6, type K6Record } from './k6run';
 import { makeWorkDir, removeDir } from './proc';
-
-export const datasetsDir = resolve(ROOT_DIR, 'datasets');
+import { startBrowserBots, type BrowserBotResult } from './browserbots';
+import { startDockerStats } from './dockerstats';
 
 type RunJourney = JourneyInput & { weight: number };
 
 // ---------------------------------------------------------------------------------------
-
-function csvToRows(text: string): Record<string, string>[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  const split = (l: string) => [...l.matchAll(/("([^"]|"")*"|[^,]*)(,|$)/g)].map((m) => m[1]!.replace(/^"|"$/g, '').replace(/""/g, '"')).slice(0, -1);
-  const header = split(lines[0] ?? '');
-  return lines.slice(1).map((l) => Object.fromEntries(split(l).map((v, i) => [header[i] ?? `col${i}`, v])));
-}
-
-/** Read a dataset from datasets/ (json array or csv) and return it as JSON text. */
-export function loadDataset(name: string): string {
-  const path = datasetPath(datasetsDir, name);
-  if (!existsSync(path)) throw new SafetyError(`Dataset "${name}" was not found in the datasets/ folder`);
-  if (statSync(path).size > 5_000_000) throw new SafetyError('Dataset is larger than 5 MB');
-  const text = readFileSync(path, 'utf8');
-  const rows = name.toLowerCase().endsWith('.csv') ? csvToRows(text) : JSON.parse(text);
-  if (!Array.isArray(rows) || rows.length === 0) throw new SafetyError('Dataset must be a non-empty JSON array or a CSV with a header row');
-  return JSON.stringify(rows);
-}
 
 /** Turn the run's mix into concrete journeys (path entries become one single-step journey per path). */
 export async function resolveJourneys(run: RunWithTarget, cfg: StressConfig): Promise<RunJourney[]> {
@@ -173,7 +155,7 @@ export async function runStress(run: RunWithTarget): Promise<RunnerResult> {
   try {
     writeFileSync(join(workDir, 'secrets.json'), JSON.stringify(secrets));
     chmodSync(join(workDir, 'secrets.json'), 0o644); // the k6 container runs as a different uid; the file lives in a private, deleted-after-run folder
-    writeFileSync(join(workDir, 'dataset.json'), cfg.dataset ? loadDataset(cfg.dataset) : '[]');
+    writeFileSync(join(workDir, 'dataset.json'), cfg.dataset ? loadDataset(datasetsDir, cfg.dataset) : '[]');
 
     const origin = new URL(target.baseUrl).origin;
     const loadStages = plan.stages.filter((s) => s.phase !== 'recovery');
@@ -210,6 +192,15 @@ export async function runStress(run: RunWithTarget): Promise<RunnerResult> {
     let lastTotal = 0;
     let hardStop = false; // budget or rate-ceiling breaches: do not send any more traffic, not even for the recovery check
 
+    // Hybrid: a few real-browser bots run the same journeys while the protocol bots push the backend.
+    const botsHandle = cfg.engine === 'hybrid' && cfg.browserBots > 0
+      ? startBrowserBots({ runId: run.id, target, journeys, count: cfg.browserBots, maxRps: target.stressMaxRps, secrets, rows: cfg.dataset ? JSON.parse(loadDataset(datasetsDir, cfg.dataset)) : [] })
+      : null;
+    const bots: { result: BrowserBotResult | null } = { result: null };
+    const stopBrowserBots = async () => { bots.result ??= (await botsHandle?.stop()) ?? null; };
+
+    const stats = target.containerName && target.allowPrivateNetwork ? startDockerStats(target.containerName) : null;
+
     const load = await runK6({
       run, workDir, script: buildStressScript(),
       env: scriptEnv('load', {}),
@@ -241,6 +232,8 @@ export async function runStress(run: RunWithTarget): Promise<RunnerResult> {
       },
     });
     await collector.flush(true);
+    await stopBrowserBots();
+    const resources = (await stats?.stop()) ?? null;
     const failure = engineError(load);
     if (failure) throw new Error(redact(failure.message));
 
@@ -310,7 +303,9 @@ export async function runStress(run: RunWithTarget): Promise<RunnerResult> {
       patterns: classifyFailurePattern(levels, steps, finalBreaking),
       recovery,
       integrity,
-      vitals: null,
+      vitals: bots.result?.vitals ?? null,
+      browser: bots.result?.browser ?? null,
+      resources,
       driftPct: cfg.profile === 'soak' ? latencyDrift(peakPoints) : null,
       ceilingReached: levels.some((l) => l.rps >= plan.maxPossibleRps * 0.9),
       hypothesis: cfg.hypothesis,

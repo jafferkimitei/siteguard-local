@@ -1,6 +1,5 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { dirname, resolve } from 'node:path';
 import {
   DATA_REF, ENV_REF, HARD_MAX_BROWSER_BOTS, botSchedule, estimateRequests, estimateStressRequests, minGapMs, scheduleStats, stepRefs,
   type JourneyInput, type LoadConfig, type Stage, type StopRules, type StressConfig,
@@ -213,10 +212,4 @@ export async function validateJourney(journey: JourneyInput, target: TargetPolic
   }
 }
 
-/** Bots-per-level and breaking-point helpers live in contracts; this guards the dataset file name. */
-export function datasetPath(root: string, name: string): string {
-  if (!/^[A-Za-z0-9_.-]{1,80}$/.test(name) || name.startsWith('.')) throw new SafetyError('Invalid dataset name');
-  const full = resolve(root, name);
-  if (dirname(full) !== resolve(root)) throw new SafetyError('Dataset must live directly inside the datasets folder');
-  return full;
-}
+export { datasetPath, loadDataset } from './dataset';

@@ -79,6 +79,14 @@ export default function Journeys() {
       load();
     } catch (e) { setError((e as Error).message); }
   };
+  type Dry = { ok: boolean; steps: { step: string; kind: string; method: string; path: string; status: number; ms: number; extracted: string[]; failed: string[] }[] };
+  const [dry, setDry] = useState<Dry | null>(null);
+  const [dataset, setDataset] = useState('');
+  const dryRun = async (j: Journey) => {
+    setError(null);
+    try { setDry(await api<Dry>(`/journeys/${j.id}/dry-run`, { method: 'POST', body: JSON.stringify({ dataset: dataset.trim() || undefined }) })); }
+    catch (e) { setDry(null); setError((e as Error).message); }
+  };
   const remove = async (j: Journey) => { if (confirm(`Delete journey "${j.name}"?`)) { await api(`/journeys/${j.id}`, { method: 'DELETE' }); load(); } };
 
   return (
@@ -91,8 +99,17 @@ export default function Journeys() {
           {journeys.length === 0 ? <p className="text-muted">No journeys yet.</p> : (
             <table><thead><tr><th>Name</th><th>Steps</th><th /></tr></thead><tbody>
               {journeys.map((j) => (<tr key={j.id}><td className="font-medium">{j.name}</td><td className="text-xs text-muted">{j.steps.map((s) => `${s.method} ${s.name}`).join(' → ')}</td>
-                <td className="space-x-2 text-right"><Btn variant="ghost" onClick={() => { setWarnings([]); setEditing({ id: j.id, name: j.name, steps: j.steps }); }}>Edit</Btn><Btn variant="ghost" onClick={() => remove(j)}>Delete</Btn></td></tr>))}
+                <td className="space-x-2 text-right"><Btn variant="ghost" onClick={() => dryRun(j)}>Test once</Btn><Btn variant="ghost" onClick={() => { setWarnings([]); setEditing({ id: j.id, name: j.name, steps: j.steps }); }}>Edit</Btn><Btn variant="ghost" onClick={() => remove(j)}>Delete</Btn></td></tr>))}
             </tbody></table>
+          )}
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted">Dataset for “Test once” (optional) <input className="!w-48" value={dataset} onChange={(e) => setDataset(e.target.value)} placeholder="users.json" /></div>
+          {!editing && <ErrorBox error={error} />}
+          {dry && (
+            <div className="mt-4"><div className={`mb-2 text-sm ${dry.ok ? 'text-emerald-300' : 'text-red-300'}`}>{dry.ok ? 'Every step and check passed.' : 'Something failed:'}</div>
+              <table><thead><tr><th>Step</th><th>Request</th><th>Status</th><th>ms</th><th>Extracted</th><th>Problems</th></tr></thead><tbody>
+                {dry.steps.map((r) => (<tr key={r.step}><td>{r.step}{r.kind === 'verify' && <span className="ml-1 text-xs text-muted">(verify)</span>}</td><td className="font-mono text-xs">{r.method} {r.path}</td><td>{r.status || '—'}</td><td>{r.ms}</td>
+                  <td className="text-xs text-muted">{r.extracted.join(', ') || '—'}</td><td className="text-xs text-red-300">{r.failed.join('; ')}</td></tr>))}
+              </tbody></table></div>
           )}
           {!editing && <div className="mt-4"><Btn onClick={() => setEditing({ name: '', steps: [blankStep(1)] })}>New journey</Btn></div>}
         </Card>

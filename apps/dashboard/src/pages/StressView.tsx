@@ -15,6 +15,13 @@ const Verdict = ({ v }: { v: HealthVerdict }) => (
   <li className="flex items-start gap-2"><Badge kind={VERDICT_KIND[v.verdict]}>{v.verdict === 'ok' ? 'healthy' : v.verdict === 'warn' ? 'watch' : 'problem'}</Badge><span>{v.text}</span></li>
 );
 
+const Vital = ({ label, value, good, poor, unit }: { label: string; value: number; good: number; poor: number; unit: string }) => (
+  <div className="rounded-lg border border-line px-3 py-2">
+    <div className="text-xs text-muted">{label}</div>
+    <div className={`text-lg font-semibold tabular-nums ${value <= good ? 'text-emerald-300' : value <= poor ? 'text-orange-200' : 'text-red-300'}`}>{unit ? Math.round(value) : value.toFixed(2)}{unit && <span className="ml-1 text-xs text-muted">{unit}</span>}</div>
+  </div>
+);
+
 export default function StressView({ run, points, active }: { run: Run; points: Metric[]; active: boolean }) {
   const s = run.summary as StressSummary | null;
   const cfg = run.config as { hypothesis?: string; profile?: string };
@@ -48,6 +55,32 @@ export default function StressView({ run, points, active }: { run: Run; points: 
           {s.cacheHitRatio !== null && <p className="mt-3 text-sm">Cache hit ratio: <b>{pct(s.cacheHitRatio)}</b></p>}
           {s.wafBlocks > 0 && <p className="mt-3 text-sm text-orange-200">{s.wafBlocks} responses looked like WAF or rate-limit blocks.</p>}
         </Card>
+      )}
+
+      {s && (s.vitals || s.browser || s.resources) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {(s.vitals || s.browser) && (
+            <Card title="Real-browser experience (Core Web Vitals, 75th percentile)">
+              {s.vitals ? (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <Vital label="TTFB" value={s.vitals.ttfb} good={800} poor={1800} unit="ms" />
+                  <Vital label="FCP" value={s.vitals.fcp} good={1800} poor={3000} unit="ms" />
+                  <Vital label="LCP" value={s.vitals.lcp} good={2500} poor={4000} unit="ms" />
+                  <Vital label="CLS" value={s.vitals.cls} good={0.1} poor={0.25} unit="" />
+                </div>
+              ) : <p className="text-muted">No HTML page loads were measured.</p>}
+              {s.browser && <p className="mt-3 text-xs text-muted">{s.browser.sessions} page loads · {s.browser.failedSteps} failed steps{s.browser.consoleErrors.length ? ` · ${s.browser.consoleErrors.join(' | ')}` : ''}</p>}
+            </Card>
+          )}
+          {s.resources && (
+            <Card title="Container resources (docker stats)">
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="CPU avg / peak" value={`${s.resources.cpuAvg.toFixed(0)}% / ${s.resources.cpuMax.toFixed(0)}%`} />
+                <Stat label="Memory start to end" value={`${Math.round(s.resources.memStartMb)} to ${Math.round(s.resources.memEndMb)} MB`} sub={`peak ${Math.round(s.resources.memMaxMb)} MB`} />
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">

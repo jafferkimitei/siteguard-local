@@ -5,6 +5,7 @@ import { DEFAULT_MAX_DURATION_SEC, DEFAULT_MAX_REQUESTS, DEFAULT_MAX_RPS, HARD_M
 export * from './limits';
 export * from './stress';
 export * from './k6-script';
+export * from './journey-runtime';
 
 export const RunType = z.enum(['LOAD', 'CRAWL', 'SECURITY', 'STRESS']);
 export type RunType = z.infer<typeof RunType>;

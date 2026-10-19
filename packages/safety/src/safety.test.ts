@@ -61,7 +61,7 @@ describe('stop rules', () => {
   it('computes percentiles', () => expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95)).toBe(10));
 });
 
-import { StressConfig, TargetPatch, botLevels, botSchedule, classifyFailurePattern, detectBreakingPoint, evaluateRecovery, latencyDrift, type LevelStats, type StepStats } from '@siteguard/contracts';
+import { StressConfig, TargetPatch, parseDockerStatsLine, summariseResources, botLevels, botSchedule, classifyFailurePattern, detectBreakingPoint, evaluateRecovery, latencyDrift, type LevelStats, type StepStats } from '@siteguard/contracts';
 import { datasetPath, validateJourney, validateStressPlan } from './index';
 
 const stressTarget = { ...target, stressAuthorized: true, stressMaxBots: 64, stressMaxRps: 100, stressMaxDurationSec: 600, stressMaxRequests: 50_000 };
@@ -188,5 +188,18 @@ describe('target patch', () => {
   });
   it('still validates what was sent', () => {
     expect(() => TargetPatch.parse({ maxRps: 0 })).toThrow();
+  });
+});
+
+describe('docker stats parsing', () => {
+  it('reads CPU and memory in different units', () => {
+    expect(parseDockerStatsLine('12.34%|45.6MiB / 7.7GiB')).toEqual({ cpuPct: 12.34, memMb: 45.6 });
+    expect(parseDockerStatsLine('0.50%|1.5GiB / 7.7GiB')?.memMb).toBeCloseTo(1536);
+    expect(parseDockerStatsLine('3%|512kB / 1GiB')?.memMb).toBeCloseTo(0.5);
+    expect(parseDockerStatsLine('garbage')).toBeNull();
+  });
+  it('summarises samples', () => {
+    expect(summariseResources([{ cpuPct: 10, memMb: 100 }, { cpuPct: 90, memMb: 160 }])).toMatchObject({ cpuAvg: 50, cpuMax: 90, memStartMb: 100, memEndMb: 160, memMaxMb: 160 });
+    expect(summariseResources([])).toBeNull();
   });
 });

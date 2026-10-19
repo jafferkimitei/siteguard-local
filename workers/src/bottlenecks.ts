@@ -92,6 +92,34 @@ export function bottleneckFindings(s: StressSummary, baseUrl: string): FindingIn
       description: 'Response time kept growing while load was constant. This pattern is typical of a memory leak, a connection or file-descriptor leak, or a cache or table that grows without bounds.',
       remediation: 'Watch memory and open connections over time on the server, take heap snapshots at the start and end of the soak, and look for unbounded growth.' });
 
+  if (s.vitals) {
+    const v = s.vitals;
+    const poor: string[] = [];
+    if (v.ttfb > 800) poor.push(`TTFB ${Math.round(v.ttfb)} ms (good is under 800)`);
+    if (v.fcp > 1800) poor.push(`FCP ${Math.round(v.fcp)} ms (good is under 1800)`);
+    if (v.lcp > 2500) poor.push(`LCP ${Math.round(v.lcp)} ms (good is under 2500)`);
+    if (v.cls > 0.1) poor.push(`CLS ${v.cls.toFixed(2)} (good is under 0.1)`);
+    if (poor.length)
+      add({ severity: v.lcp > 4000 || v.ttfb > 1800 ? 'HIGH' : 'MEDIUM', title: 'Core Web Vitals were poor in a real browser under load',
+        description: `Browser bots measured (75th percentile over ${v.sessions} page loads): ${poor.join('; ')}. The backend may answer quickly while the page is still slow for users.`,
+        remediation: 'High TTFB points at the server; high FCP/LCP with a fast TTFB points at render-blocking scripts, large images or slow third-party scripts; CLS comes from elements that change size after loading.' });
+  }
+  if (s.browser && s.browser.failedSteps > 0)
+    add({ severity: 'MEDIUM', title: `${s.browser.failedSteps} real-browser journey step(s) failed`,
+      description: `A step failed in Chromium while protocol bots were running.${s.browser.consoleErrors.length ? ' Console/network errors: ' + s.browser.consoleErrors.join(' | ') : ''}`,
+      evidence: s.browser.screenshot ? `Screenshot of the first failure: ${s.browser.screenshot}` : undefined,
+      remediation: 'Open the screenshot and console errors to see what the user would have seen.' });
+
+  if (s.resources) {
+    const r = s.resources;
+    if (r.cpuMax >= 90)
+      add({ severity: 'HIGH', title: `Container CPU hit ${r.cpuMax.toFixed(0)}% under load`, description: `Measured with docker stats: average ${r.cpuAvg.toFixed(0)}%, peak ${r.cpuMax.toFixed(0)}%. The application was CPU-bound.`,
+        remediation: 'Profile for hot code paths, add caching, or scale out with more instances.' });
+    if (r.memEndMb > r.memStartMb * 1.25 && r.memEndMb - r.memStartMb > 50)
+      add({ severity: 'MEDIUM', title: `Container memory grew ${Math.round(r.memStartMb)} MB to ${Math.round(r.memEndMb)} MB`, description: 'Measured with docker stats. Memory kept rising during the test, which can mean a leak or an unbounded cache.',
+        remediation: 'Take heap snapshots before and after, and check for caches, queues or arrays that never shrink.' });
+  }
+
   if (s.cacheHitRatio !== null && s.cacheHitRatio < 0.5)
     add({ severity: 'LOW', title: `Low cache hit ratio (${pct(s.cacheHitRatio)})`, description: 'Most responses came from the origin rather than a CDN or cache, so the origin carries nearly all the load.',
       remediation: 'Add cache headers for static and cacheable pages; check cache keys and cookies that prevent caching.' });

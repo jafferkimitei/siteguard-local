@@ -5,9 +5,9 @@ import { Queue } from 'bullmq';
 import Fastify from 'fastify';
 import { Redis } from 'ioredis';
 import { ZodError, z } from 'zod';
-import { CreateRun, FindingStatus, JourneyInput, buildStressScript, journeyWarnings, QUEUE_NAME, TargetInput, TargetPatch, cancelKey, runChannel, sortBySeverity, type RunJobData } from '@siteguard/contracts';
-import { audit, env, prisma, reportsDir } from '@siteguard/database';
-import { SafetyError, assertDestinationAllowed, validateJourney, validateLoadPlan, validateStressPlan } from '@siteguard/safety';
+import { CreateRun, ENV_REF, FindingStatus, JourneyInput, buildStressScript, extractInto, failedChecks, renderTemplate, stepRefs, type JourneyStep, journeyWarnings, QUEUE_NAME, TargetInput, TargetPatch, cancelKey, runChannel, sortBySeverity, type RunJobData } from '@siteguard/contracts';
+import { audit, datasetsDir, env, prisma, reportsDir } from '@siteguard/database';
+import { SafetyError, assertDestinationAllowed, loadDataset, validateJourney, validateLoadPlan, validateStressPlan } from '@siteguard/safety';
 import { runToCsv, runToHtml, type FullRun } from './report';
 
 const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -84,6 +84,56 @@ app.put('/journeys/:id', async (req) => {
 app.delete('/journeys/:id', async (req, reply) => {
   await prisma.journey.delete({ where: { id: id(req) } });
   return reply.code(204).send();
+});
+
+/** Run a journey once with a single bot (no load) so you can check it works before a stress test. */
+app.post('/journeys/:id/dry-run', async (req) => {
+  const { dataset } = z.object({ dataset: z.string().optional() }).parse(req.body ?? {});
+  const j = await prisma.journey.findUniqueOrThrow({ where: { id: id(req) }, include: { target: true } });
+  const steps = j.steps as unknown as JourneyStep[];
+  await validateJourney({ name: j.name, steps }, j.target, { hasDataset: !!dataset });
+  const row = dataset ? (JSON.parse(loadDataset(datasetsDir, dataset)) as Record<string, unknown>[])[0] ?? null : null;
+  const secrets: Record<string, string> = {};
+  for (const ref of steps.flatMap(stepRefs)) {
+    const m = ENV_REF.exec(ref);
+    if (!m) continue;
+    if (process.env[m[1]!] === undefined) throw new SafetyError(`Environment variable ${m[1]} is referenced by this journey but is not set. Add it to your .env file.`);
+    secrets[m[1]!] = process.env[m[1]!]!;
+  }
+  const origin = new URL(j.target.baseUrl).origin;
+  const vars: Record<string, string> = {};
+  const cookies = new Map<string, string>();
+  const rc = { vars, row, secrets };
+  const results: { step: string; kind: string; method: string; path: string; status: number; ms: number; extracted: string[]; failed: string[] }[] = [];
+  for (const st of steps) {
+    const url = origin + renderTemplate(st.path, rc, true);
+    await assertDestinationAllowed(url, j.target);
+    const headers: Record<string, string> = { 'user-agent': 'SiteGuardLocal/0.1 (journey dry run)' };
+    for (const [k, v] of Object.entries(st.headers)) headers[k] = renderTemplate(v, rc, false);
+    if (cookies.size) headers.cookie = [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
+    if (st.bodyType === 'json') headers['content-type'] ??= 'application/json';
+    if (st.bodyType === 'form') headers['content-type'] ??= 'application/x-www-form-urlencoded';
+    const started = Date.now();
+    let status = 0;
+    let text = '';
+    let resHeaders: Record<string, string> = {};
+    let failed: string[] = [];
+    try {
+      const res = await fetch(url, { method: st.method, headers, body: st.bodyType === 'none' ? undefined : renderTemplate(st.body, rc, st.bodyType === 'form'), redirect: 'manual', signal: AbortSignal.timeout(15_000) });
+      status = res.status;
+      resHeaders = Object.fromEntries(res.headers.entries());
+      for (const c of res.headers.getSetCookie()) { const [pair] = c.split(';'); const i = pair!.indexOf('='); if (i > 0) cookies.set(pair!.slice(0, i).trim(), pair!.slice(i + 1)); }
+      text = (await res.text()).slice(0, 200_000);
+    } catch (err) {
+      failed = [`request failed: ${err instanceof Error ? err.message : String(err)}`];
+    }
+    const res = { status, text, headers: resHeaders };
+    const extracted = extractInto(st, res, vars);
+    failed = [...failed, ...failedChecks(st, res, rc), ...(status === 0 || status >= 400 ? [`HTTP ${status || 'no response'}`] : [])];
+    results.push({ step: st.name, kind: st.kind, method: st.method, path: st.path, status, ms: Date.now() - started, extracted, failed });
+    if (status === 0 || status >= 400) if (st.kind === 'normal') break;
+  }
+  return { ok: results.every((r) => r.failed.length === 0), steps: results };
 });
 
 // ---------------- runs ----------------

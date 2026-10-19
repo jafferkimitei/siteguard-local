@@ -401,6 +401,8 @@ export interface StressSummary {
   breakingPoint: BreakingPoint | null;
   steps: StepStats[];
   statusCounts: Record<string, number>;
+  /** Transport-level failures: timeout, connection refused, connection reset, network error. */
+  errorKinds: Record<string, number>;
   cacheHitRatio: number | null;
   wafBlocks: number;
   health: HealthVerdict[];

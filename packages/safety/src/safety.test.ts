@@ -61,7 +61,7 @@ describe('stop rules', () => {
   it('computes percentiles', () => expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95)).toBe(10));
 });
 
-import { StressConfig, botLevels, botSchedule, classifyFailurePattern, detectBreakingPoint, evaluateRecovery, latencyDrift, type LevelStats, type StepStats } from '@siteguard/contracts';
+import { StressConfig, TargetPatch, botLevels, botSchedule, classifyFailurePattern, detectBreakingPoint, evaluateRecovery, latencyDrift, type LevelStats, type StepStats } from '@siteguard/contracts';
 import { datasetPath, validateJourney, validateStressPlan } from './index';
 
 const stressTarget = { ...target, stressAuthorized: true, stressMaxBots: 64, stressMaxRps: 100, stressMaxDurationSec: 600, stressMaxRequests: 50_000 };
@@ -179,5 +179,14 @@ describe('recovery and drift', () => {
   it('measures latency drift over a soak', () => {
     expect(latencyDrift([50, 50, 51, 52, 60, 70, 85, 100])).toBeGreaterThan(0.5);
     expect(latencyDrift([50, 51, 50, 52, 50, 51, 50, 52])).toBeLessThan(0.1);
+  });
+});
+
+describe('target patch', () => {
+  it('only contains the fields that were sent', () => {
+    expect(TargetPatch.parse({ stressMaxBots: 5 })).toEqual({ stressMaxBots: 5 });
+  });
+  it('still validates what was sent', () => {
+    expect(() => TargetPatch.parse({ maxRps: 0 })).toThrow();
   });
 });

@@ -36,7 +36,7 @@ export function fingerprint(...parts: (string | undefined)[]) {
 }
 
 export interface FindingInput {
-  source: 'PASSIVE' | 'CRAWLER' | 'ZAP';
+  source: 'PASSIVE' | 'CRAWLER' | 'ZAP' | 'STRESS';
   severity: Severity;
   title: string;
   description: string;

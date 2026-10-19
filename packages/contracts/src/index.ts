@@ -4,6 +4,7 @@ import { DEFAULT_MAX_DURATION_SEC, DEFAULT_MAX_REQUESTS, DEFAULT_MAX_RPS, HARD_M
 
 export * from './limits';
 export * from './stress';
+export * from './k6-script';
 
 export const RunType = z.enum(['LOAD', 'CRAWL', 'SECURITY', 'STRESS']);
 export type RunType = z.infer<typeof RunType>;
@@ -51,7 +52,10 @@ export const TargetInput = z.object({
   containerName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$/).nullable().default(null),
 });
 export type TargetInput = z.infer<typeof TargetInput>;
-export const TargetPatch = TargetInput.partial();
+/** Every field optional with NO defaults, so a PATCH only changes what was sent (zod's .partial() keeps defaults and would reset the rest). */
+export const TargetPatch = z.object(
+  Object.fromEntries(Object.entries(TargetInput.shape).map(([k, v]) => [k, (v instanceof z.ZodDefault ? v.removeDefault() : v).optional()])),
+) as unknown as z.ZodType<Partial<TargetInput>>;
 
 // ---- Run configs ----
 

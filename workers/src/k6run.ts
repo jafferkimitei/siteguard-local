@@ -53,6 +53,8 @@ export interface K6Record {
 export interface K6Result {
   outcome: 'COMPLETED' | 'CANCELLED' | 'ABORTED';
   abortReason?: string;
+  /** Set when onTick ended the run early on purpose. */
+  completedEarly?: string;
   exitCode: number | null;
   stderr: string;
 }
@@ -66,8 +68,11 @@ export interface K6RunOptions {
   startMessage: string;
   auditData: object;
   onRecord: (rec: K6Record) => void;
-  /** Called about once a second. Return a reason to stop the run early. */
-  onTick: () => Promise<string | null>;
+  /**
+   * Called about once a second. A string aborts the run (a safety stop); `{ complete }` ends it early
+   * as a normal result (e.g. the breaking point was found).
+   */
+  onTick: () => Promise<string | { complete: string } | null>;
 }
 
 /** Spawn k6 (local binary or Docker), stream its samples into onRecord, and honour cancel / stop rules. */
@@ -110,6 +115,7 @@ export async function runK6(o: K6RunOptions): Promise<K6Result> {
 
   let outcome: K6Result['outcome'] = 'COMPLETED';
   let abortReason: string | undefined;
+  let completedEarly: string | undefined;
   let lastCheck = 0;
   while (proc.exitCode() === null) {
     await sleep(250);
@@ -122,6 +128,12 @@ export async function runK6(o: K6RunOptions): Promise<K6Result> {
     if (Date.now() - lastCheck >= 1000) {
       lastCheck = Date.now();
       const reason = await o.onTick();
+      if (reason && typeof reason === 'object') {
+        completedEarly = reason.complete;
+        kill();
+        await audit(o.run.id, 'stopped-early', reason.complete);
+        break;
+      }
       if (reason) {
         outcome = 'ABORTED';
         abortReason = reason;
@@ -136,12 +148,12 @@ export async function runK6(o: K6RunOptions): Promise<K6Result> {
   await sleep(200);
   for (const line of tail.read()) ingest(line);
   tail.close();
-  return { outcome, abortReason, exitCode: proc.exitCode(), stderr: proc.stderr() };
+  return { outcome, abortReason, completedEarly, exitCode: proc.exitCode(), stderr: proc.stderr() };
 }
 
 /** k6 exit 99 = a threshold failed; we define none, so any other non-zero exit is an engine error. */
 export function engineError(r: K6Result): Error | null {
-  if (r.outcome !== 'COMPLETED' || r.exitCode === 0 || r.exitCode === 99) return null;
+  if (r.outcome !== 'COMPLETED' || r.completedEarly || r.exitCode === 0 || r.exitCode === 99) return null;
   return new Error(`k6 exited with code ${r.exitCode}: ${r.stderr.trim().slice(-800) || 'no output'}`);
 }
 

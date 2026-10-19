@@ -6,6 +6,7 @@ import { Badge, Btn, Card, ErrorBox, Field, TYPE_LABEL, runResult, when } from '
 const COPY: Record<RunType, string> = {
   LOAD: 'Ramps up to a fixed arrival rate using k6. The target\'s req/s ceiling, duration limit and request budget are enforced before the run starts; error-rate and latency stop rules end it early.',
   CRAWL: 'Discovers pages within the approved hosts, following redirects hop-by-hop (each hop is scope-checked) and reporting broken links, redirect chains and missing metadata.',
+  STRESS: 'Finds the point where your site degrades by adding bots at every interval. Runs journeys end to end, then checks recovery.',
   SECURITY: 'Passive checks inspect headers, cookies, TLS and a handful of commonly exposed files. OWASP ZAP runs in Docker and is optional.',
 };
 

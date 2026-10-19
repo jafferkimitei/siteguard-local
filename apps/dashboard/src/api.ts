@@ -12,7 +12,8 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
   return data as T;
 }
 
-export type RunType = 'LOAD' | 'CRAWL' | 'SECURITY';
+export type { RunType } from '@siteguard/contracts';
+import type { MetricPointDTO, RunType } from '@siteguard/contracts';
 export interface Target {
   id: string; name: string; baseUrl: string; extraHosts: string[]; allowPrivateNetwork: boolean;
   activeScanAuthorized: boolean; maxRps: number; maxDurationSec: number; maxRequests: number;
@@ -25,10 +26,6 @@ export interface Finding {
   id: string; runId: string; targetId: string; source: string; severity: string; title: string; description: string;
   evidence: string | null; remediation: string | null; url: string | null; status: string; createdAt: string; target?: { name: string };
 }
-export interface Metric { ts: string; rps: number; p50: number; p95: number; p99: number; errorRate: number; vus: number; requests: number }
+export type Metric = MetricPointDTO;
 
-/** Mirrors safety.estimateRequests (kept local so the browser bundle doesn't pull in node:dns). */
-export const estimateRequests = (rps: number, dur: number, ramp: number) => {
-  const r = Math.min(ramp, dur);
-  return Math.ceil((rps * r) / 2 + rps * (dur - r));
-};
+export { estimateRequests } from '@siteguard/contracts';

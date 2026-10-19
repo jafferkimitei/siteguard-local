@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, type Run } from '../api';
-import { Badge, Btn, Card, ErrorBox, TYPE_LABEL, ms, pct, when } from '../ui';
-
-const result = (r: Run) => !r.summary ? '—' : r.type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${pct(r.summary.errorRate)} err`
-  : r.type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken` : `${r.summary.findings} findings`;
+import { Badge, Btn, Card, ErrorBox, TYPE_LABEL, ms, pct, runResult, when } from '../ui';
 
 export default function Reports() {
   const nav = useNavigate();
@@ -27,7 +24,7 @@ export default function Reports() {
           <table><thead><tr><th /><th>When</th><th>Type</th><th>Target</th><th>Status</th><th>Result</th></tr></thead><tbody>
             {runs.map((r) => (<tr key={r.id}>
               <td><input type="checkbox" checked={sel.includes(r.id)} onChange={() => toggle(r.id)} /></td>
-              <td><Link className="text-accent" to={`/runs/${r.id}`}>{when(r.createdAt)}</Link></td><td>{TYPE_LABEL[r.type]}</td><td>{r.target?.name}</td><td><Badge kind={r.status} /></td><td className="text-muted">{result(r)}</td></tr>))}
+              <td><Link className="text-accent" to={`/runs/${r.id}`}>{when(r.createdAt)}</Link></td><td>{TYPE_LABEL[r.type]}</td><td>{r.target?.name}</td><td><Badge kind={r.status} /></td><td className="text-muted">{runResult(r)}</td></tr>))}
           </tbody></table>
         )}
       </Card>

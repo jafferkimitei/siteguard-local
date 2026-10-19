@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, estimateRequests, type Run, type RunType, type Target } from '../api';
-import { Badge, Btn, Card, ErrorBox, Field, TYPE_LABEL, ms, when } from '../ui';
+import { Badge, Btn, Card, ErrorBox, Field, TYPE_LABEL, runResult, when } from '../ui';
 
 const COPY: Record<RunType, string> = {
   LOAD: 'Ramps up to a fixed arrival rate using k6. The target\'s req/s ceiling, duration limit and request budget are enforced before the run starts; error-rate and latency stop rules end it early.',
@@ -17,7 +17,7 @@ export default function Launcher({ type }: { type: RunType }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [load, setLoad] = useState({ paths: '/', rps: 1, maxVus: 10, durationSec: 30, rampUpSec: 5, maxErrorPct: 50, maxP95Ms: 10000 });
-  const [crawl, setCrawl] = useState({ startPath: '/', maxPages: 50, maxDepth: 3, rps: 2 });
+  const [crawl, setCrawl] = useState({ startPath: '/', maxPages: 50, maxDepth: 3, rps: 2, renderJs: false });
   const [sec, setSec] = useState({ zapBaseline: false, zapActive: false });
 
   useEffect(() => {
@@ -66,6 +66,7 @@ export default function Launcher({ type }: { type: RunType }) {
               <Field label="Max pages"><input type="number" min={1} value={crawl.maxPages} onChange={num(setCrawl, 'maxPages')} /></Field>
               <Field label="Max depth"><input type="number" min={0} value={crawl.maxDepth} onChange={num(setCrawl, 'maxDepth')} /></Field>
               <Field label="Requests per second (max 20)"><input type="number" min={1} max={20} value={crawl.rps} onChange={num(setCrawl, 'rps')} /></Field>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={crawl.renderJs} onChange={(e) => setCrawl({ ...crawl, renderJs: e.target.checked })} /> Render JavaScript (Chromium)</label>
             </>}
             {type === 'SECURITY' && <div className="space-y-2 md:col-span-2">
               <label className="flex items-center gap-2"><input type="checkbox" checked disabled /> Passive checks (headers, cookies, TLS, exposed files) — always on</label>
@@ -80,7 +81,7 @@ export default function Launcher({ type }: { type: RunType }) {
         {runs.length === 0 ? <p className="text-muted">No runs yet.</p> : (
           <table><thead><tr><th>When</th><th>Target</th><th>Status</th><th>Result</th></tr></thead><tbody>
             {runs.map((r) => (<tr key={r.id}><td><Link className="text-accent" to={`/runs/${r.id}`}>{when(r.createdAt)}</Link></td><td>{r.target?.name}</td><td><Badge kind={r.status} /></td>
-              <td className="text-muted">{r.summary ? (type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${(r.summary.errorRate * 100).toFixed(1)}% err` : type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken` : `${r.summary.findings} findings`) : r.error ?? '—'}</td></tr>))}
+              <td className="text-muted">{runResult(r)}</td></tr>))}
           </tbody></table>
         )}
       </Card>

@@ -2,8 +2,9 @@ import * as cheerio from 'cheerio';
 import { CrawlConfig, type CrawlSummary } from '@siteguard/contracts';
 import { prisma } from '@siteguard/database';
 import { isInScope } from '@siteguard/safety';
-import { audit, isCancelled, progress, saveFindings, sleep, type FindingInput, type RunnerResult, type RunWithTarget } from './common';
+import { audit, errMessage, isCancelled, progress, saveFindings, sleep, type FindingInput, type RunnerResult, type RunWithTarget } from './common';
 import { safeFetch } from './http';
+import { launchBrowser, renderHtml } from './render';
 
 function normalise(href: string, base: string): string | null {
   try {
@@ -16,6 +17,8 @@ function normalise(href: string, base: string): string | null {
     return null;
   }
 }
+
+const chainText = (chain: { url: string; status: number }[]) => chain.map((h) => `${h.status} ${h.url}`).join('\n');
 
 export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
   const { target } = run;
@@ -32,7 +35,9 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
   }[] = [];
   let crawled = 0;
   let cancelled = false;
+  const browser = cfg.renderJs ? await launchBrowser() : null;
 
+  try {
   while (queue.length && crawled < cfg.maxPages) {
     if (await isCancelled(run.id)) {
       cancelled = true;
@@ -40,6 +45,7 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
     }
     const item = queue.shift()!;
     const issues: string[] = [];
+    const linkedFrom = item.foundOn ? ` Linked from ${item.foundOn}.` : '';
     let status: number | null = null;
     let title: string | null = null;
     let description: string | null = null;
@@ -56,13 +62,13 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
         issues.push(`redirect chain (${redirects} hops)`);
         findings.push({ source: 'CRAWLER', severity: 'LOW', title: 'Redirect chain', url: item.url,
           description: `${item.url} goes through ${redirects} redirects before reaching ${res.finalUrl}.`,
-          evidence: res.chain.map((h) => `${h.status} ${h.url}`).join('\n'),
+          evidence: chainText(res.chain),
           remediation: 'Link directly to the final URL and collapse redirect chains into a single hop.' });
       }
       if (res.loop) {
         issues.push('redirect loop');
         findings.push({ source: 'CRAWLER', severity: 'HIGH', title: 'Redirect loop', url: item.url,
-          description: `${item.url} redirects back to a URL it already visited.`, evidence: res.chain.map((h) => `${h.status} ${h.url}`).join('\n'),
+          description: `${item.url} redirects back to a URL it already visited.`, evidence: chainText(res.chain),
           remediation: 'Fix the redirect rules so the chain terminates at a 200 page.' });
       }
       if (res.blockedRedirect) {
@@ -74,15 +80,23 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
       if (res.status >= 500) {
         issues.push(`server error (${res.status})`);
         findings.push({ source: 'CRAWLER', severity: 'HIGH', title: `Server error ${res.status}`, url: item.url,
-          description: `${item.url} returned HTTP ${res.status}.${item.foundOn ? ` Linked from ${item.foundOn}.` : ''}`,
+          description: `${item.url} returned HTTP ${res.status}.${linkedFrom}`,
           remediation: 'Check server logs for the failing request and fix the underlying exception.' });
       } else if (res.status >= 400) {
         issues.push(`broken link (${res.status})`);
         findings.push({ source: 'CRAWLER', severity: 'MEDIUM', title: `Broken link (${res.status})`, url: item.url,
-          description: `${item.url} returned HTTP ${res.status}.${item.foundOn ? ` Linked from ${item.foundOn}.` : ''}`,
+          description: `${item.url} returned HTTP ${res.status}.${linkedFrom}`,
           remediation: 'Fix the link, restore the page, or add a redirect to the correct destination.' });
       } else if (res.status < 300 && (res.headers.get('content-type') ?? '').includes('text/html')) {
-        const $ = cheerio.load(res.body);
+        let html = res.body;
+        if (browser) {
+          try {
+            html = await renderHtml(browser, res, target);
+          } catch (err) {
+            issues.push(`render failed: ${errMessage(err)}`);
+          }
+        }
+        const $ = cheerio.load(html);
         title = $('title').first().text().trim() || null;
         description = $('meta[name="description"]').attr('content')?.trim() || null;
         if (!title) {
@@ -112,7 +126,7 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMessage(err);
       issues.push(`request failed: ${msg}`);
       findings.push({ source: 'CRAWLER', severity: 'MEDIUM', title: 'Request failed', url: item.url,
         description: `Could not fetch ${item.url}: ${msg}`, remediation: 'Check that the server is reachable and responds within 15 seconds.' });
@@ -123,6 +137,9 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
       redirectChain: chain, foundOn: item.foundOn ?? null, issues });
     await progress(run.id, `Crawled ${item.url}`, crawled, Math.min(cfg.maxPages, crawled + queue.length));
     await sleep(delay);
+  }
+  } finally {
+    await browser?.close();
   }
 
   await prisma.crawlPage.createMany({ data: pageRows });

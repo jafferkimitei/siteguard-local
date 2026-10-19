@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
-import { Prisma, env, prisma, type Run, type Target } from '@siteguard/database';
+import { Prisma, audit, env, prisma, type Run, type Target } from '@siteguard/database';
 import { cancelKey, runChannel, type RunEvent, type RunStatus, type Severity } from '@siteguard/contracts';
 
 export const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -23,9 +23,9 @@ export async function isCancelled(runId: string) {
   return (await redis.exists(cancelKey(runId))) === 1;
 }
 
-export async function audit(runId: string, kind: string, message: string, data?: Prisma.InputJsonValue) {
-  await prisma.auditEvent.create({ data: { runId, kind, message, data } });
-}
+export { audit };
+
+export const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export async function progress(runId: string, message: string, done?: number, total?: number) {
   await publish(runId, { kind: 'progress', message, done, total });

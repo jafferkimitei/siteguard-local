@@ -57,7 +57,7 @@ infra               docker-compose.yml
 
 ## Known gaps
 
-- The crawler uses `fetch` + cheerio, so it doesn't execute JavaScript. Playwright (for SPAs) is the next step.
+- The crawler uses `fetch` + cheerio by default. Tick **Render JavaScript** (or set `renderJs: true`) to render each page in headless Chromium via Playwright so SPA links and metadata are found. One-time setup: `pnpm --filter @siteguard/workers exec playwright install chromium`. Browser requests are scope-checked the same way as everything else; set `CHROMIUM_PATH` to use an existing Chromium.
 - The ZAP integration is written but has not been exercised yet (the image is large; first run pulls it).
 - No authentication in the dashboard/API: it binds to 127.0.0.1 only. Don't expose it.
 # siteguard-local

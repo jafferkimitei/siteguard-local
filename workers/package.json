@@ -3,14 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/index.ts", "start": "tsx src/index.ts", "typecheck": "tsc -p ." },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p ."
+  },
   "dependencies": {
     "@siteguard/contracts": "workspace:*",
     "@siteguard/database": "workspace:*",
     "@siteguard/safety": "workspace:*",
     "bullmq": "^5.0.0",
     "cheerio": "^1.0.0",
-    "ioredis": "^5.4.0"
+    "ioredis": "^5.4.0",
+    "playwright": "^1.64.1"
   },
-  "devDependencies": { "tsx": "^4.19.0", "@types/node": "^22.0.0" }
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0"
+  }
 }

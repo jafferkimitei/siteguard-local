@@ -24,3 +24,6 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export * from '@prisma/client';
+
+export const audit = (runId: string | null, kind: string, message: string, data?: object) =>
+  prisma.auditEvent.create({ data: { runId, kind, message, data: data as never } });

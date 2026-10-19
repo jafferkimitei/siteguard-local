@@ -7,9 +7,11 @@ import Launcher from './pages/Launcher';
 import RunDetail from './pages/RunDetail';
 import Findings from './pages/Findings';
 import Reports, { Compare } from './pages/Reports';
+import Stress from './pages/Stress';
+import Journeys from './pages/Journeys';
 
 const NAV = [
-  ['/', 'Overview'], ['/targets', 'Targets'], ['/load', 'Load tests'], ['/crawl', 'Crawler'],
+  ['/', 'Overview'], ['/targets', 'Targets'], ['/load', 'Load tests'], ['/stress', 'Stress'], ['/journeys', 'Journeys'], ['/crawl', 'Crawler'],
   ['/security', 'Security'], ['/findings', 'Findings'], ['/reports', 'Reports'],
 ] as const;
 
@@ -52,6 +54,8 @@ export default function App() {
             <Route path="/" element={<Overview />} />
             <Route path="/targets" element={<Targets />} />
             <Route path="/load" element={<Launcher type="LOAD" />} />
+            <Route path="/stress" element={<Stress />} />
+            <Route path="/journeys" element={<Journeys />} />
             <Route path="/crawl" element={<Launcher type="CRAWL" />} />
             <Route path="/security" element={<Launcher type="SECURITY" />} />
             <Route path="/runs/:id" element={<RunDetail />} />

@@ -205,15 +205,25 @@ app.patch('/findings/:id', async (req) => {
 });
 
 // ---------------- compare ----------------
+/** Top-level config keys whose values differ (hypothesis text is ignored). */
+const diffConfig = (a: unknown, b: unknown): string[] => {
+  const x = (a ?? {}) as Record<string, unknown>;
+  const y = (b ?? {}) as Record<string, unknown>;
+  return [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => k !== 'hypothesis' && JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+};
+
 app.get('/compare', async (req) => {
   const { a, b } = z.object({ a: z.string(), b: z.string() }).parse(req.query);
   const [ra, rb] = await Promise.all([fullRun(a), fullRun(b)]);
   if (ra.type !== rb.type) throw new SafetyError('Can only compare runs of the same type');
+  const configDiff = diffConfig(ra.config, rb.config);
   const fa = new Set(ra.findings.map((f) => f.fingerprint));
   const fb = new Set(rb.findings.map((f) => f.fingerprint));
   return {
     a: { id: ra.id, type: ra.type, createdAt: ra.createdAt, summary: ra.summary, config: ra.config, target: ra.target.name },
     b: { id: rb.id, type: rb.type, createdAt: rb.createdAt, summary: rb.summary, config: rb.config, target: rb.target.name },
+    configDiff,
+    warning: configDiff.length > 1 ? `${configDiff.length} settings differ between these runs (${configDiff.join(', ')}). Change one variable per iteration so you know what caused the difference.` : null,
     findings: {
       newInB: rb.findings.filter((f) => !fa.has(f.fingerprint)),
       resolvedInB: ra.findings.filter((f) => !fb.has(f.fingerprint)),

@@ -63,5 +63,6 @@ export const TYPE_LABEL = { LOAD: 'Load test', CRAWL: 'Crawl', SECURITY: 'Securi
 export const runResult = (r: Pick<Run, 'type' | 'summary' | 'error'>) =>
   !r.summary ? r.error ?? '—'
   : r.type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${pct(r.summary.errorRate)} err`
+  : r.type === 'STRESS' ? (r.summary.breakingPoint ? `breaks at ${r.summary.breakingPoint.bots} bots · ${r.summary.totalRequests} req` : `no break up to ${r.summary.peakBots} bots · ${r.summary.totalRequests} req`)
   : r.type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken`
   : `${r.summary.findings} findings`;

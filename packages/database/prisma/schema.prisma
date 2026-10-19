@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Target {
+  id                   String   @id @default(cuid())
+  name                 String
+  baseUrl              String
+  extraHosts           String[]
+  allowPrivateNetwork  Boolean  @default(false)
+  activeScanAuthorized Boolean  @default(false)
+  maxRps               Int      @default(5)
+  maxDurationSec       Int      @default(120)
+  maxRequests          Int      @default(5000)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  runs                 Run[]
+  findings             Finding[]
+}
+
+model Run {
+  id         String    @id @default(cuid())
+  targetId   String
+  target     Target    @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  type       String // LOAD | CRAWL | SECURITY
+  status     String    @default("QUEUED")
+  config     Json
+  summary    Json?
+  error      String?
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  metrics    MetricPoint[]
+  pages      CrawlPage[]
+  findings   Finding[]
+  audit      AuditEvent[]
+
+  @@index([targetId, createdAt])
+  @@index([createdAt])
+}
+
+model MetricPoint {
+  id        Int      @id @default(autoincrement())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ts        DateTime
+  rps       Float
+  p50       Float
+  p95       Float
+  p99       Float
+  errorRate Float
+  vus       Int
+  requests  Int
+
+  @@index([runId, ts])
+}
+
+model CrawlPage {
+  id            Int      @id @default(autoincrement())
+  runId         String
+  run           Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  url           String
+  status        Int?
+  depth         Int
+  title         String?
+  description   String?
+  loadMs        Int?
+  redirectChain Json     @default("[]")
+  foundOn       String?
+  issues        String[]
+
+  @@index([runId])
+}
+
+model Finding {
+  id          String   @id @default(cuid())
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  targetId    String
+  target      Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  source      String // PASSIVE | CRAWLER | ZAP
+  severity    String
+  title       String
+  description String
+  evidence    String?
+  remediation String?
+  url         String?
+  /** Stable hash used to track the same issue across runs. */
+  fingerprint String
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+
+  @@index([targetId, fingerprint])
+  @@index([runId])
+}
+
+model AuditEvent {
+  id        Int      @id @default(autoincrement())
+  runId     String?
+  run       Run?     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  kind      String
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+}

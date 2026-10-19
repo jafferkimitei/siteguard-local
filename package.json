@@ -1,0 +1,21 @@
+{
+  "name": "siteguard-local",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d --wait",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "db:push": "pnpm --filter @siteguard/database db:push",
+    "db:studio": "pnpm --filter @siteguard/database db:studio",
+    "dev": "concurrently -k -n api,worker,web,mock -c blue,magenta,green,yellow \"pnpm --filter @siteguard/api dev\" \"pnpm --filter @siteguard/workers dev\" \"pnpm --filter @siteguard/dashboard dev\" \"pnpm --filter @siteguard/mock-target dev\"",
+    "start": "pnpm infra:up && pnpm db:push && pnpm dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

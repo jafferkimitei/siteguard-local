@@ -65,6 +65,8 @@ export const CrawlConfig = z.object({
   maxDepth: z.number().int().min(0).max(10).default(3),
   /** Requests per second ceiling for the crawler. */
   rps: z.number().int().min(1).max(20).default(2),
+  /** Render pages in headless Chromium (Playwright) so JavaScript-created links and metadata are seen. */
+  renderJs: z.boolean().default(false),
 });
 export type CrawlConfig = z.infer<typeof CrawlConfig>;
 

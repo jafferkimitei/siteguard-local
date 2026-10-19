@@ -8,7 +8,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const page = (title: string | null, desc: string | null, body: string) =>
   `<!doctype html><html><head>${title ? `<title>${title}</title>` : ''}${desc ? `<meta name="description" content="${desc}">` : ''}</head><body>${body}</body></html>`;
 
-const nav = `<nav><a href="/">Home</a> <a href="/about">About</a> <a href="/products">Products</a> <a href="/slow">Slow</a> <a href="/old-page">Old page</a> <a href="/gone">Gone</a></nav>`;
+const nav = `<nav><a href="/">Home</a> <a href="/about">About</a> <a href="/products">Products</a> <a href="/slow">Slow</a> <a href="/old-page">Old page</a> <a href="/gone">Gone</a> <a href="/spa">SPA</a></nav>`;
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -33,6 +33,10 @@ createServer(async (req, res) => {
       return send(200, page('Contact', 'Get in touch', `${nav}<h1>Contact</h1><form action="/contact" method="post"><input type="password" name="p"></form>`));
     case '/products':
       return send(200, page('Products', 'All products', `${nav}<h1>Products</h1>${[1, 2, 3].map((i) => `<a href="/products/${i}">P${i}</a>`).join(' ')}<a href="/products/99">Discontinued</a>`));
+    case '/spa': // links and title exist only after JavaScript runs
+      return send(200, `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app"></div><script>document.title='SPA page';document.getElementById('app').innerHTML='<h1>SPA</h1><a href="/js-only">JS-only page</a>';</script></body></html>`);
+    case '/js-only':
+      return send(200, page('JS-only page', 'Only reachable via JavaScript', `${nav}<h1>JS-only</h1>`));
     case '/slow':
       await sleep(400);
       return send(200, page('Slow page', 'Intentionally slow', `${nav}<h1>Slow</h1>`));

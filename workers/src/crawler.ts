@@ -4,6 +4,7 @@ import { prisma } from '@siteguard/database';
 import { isInScope } from '@siteguard/safety';
 import { audit, isCancelled, progress, saveFindings, sleep, type FindingInput, type RunnerResult, type RunWithTarget } from './common';
 import { safeFetch } from './http';
+import { launchBrowser, renderHtml } from './render';
 
 function normalise(href: string, base: string): string | null {
   try {
@@ -32,7 +33,9 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
   }[] = [];
   let crawled = 0;
   let cancelled = false;
+  const browser = cfg.renderJs ? await launchBrowser() : null;
 
+  try {
   while (queue.length && crawled < cfg.maxPages) {
     if (await isCancelled(run.id)) {
       cancelled = true;
@@ -82,7 +85,15 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
           description: `${item.url} returned HTTP ${res.status}.${item.foundOn ? ` Linked from ${item.foundOn}.` : ''}`,
           remediation: 'Fix the link, restore the page, or add a redirect to the correct destination.' });
       } else if (res.status < 300 && (res.headers.get('content-type') ?? '').includes('text/html')) {
-        const $ = cheerio.load(res.body);
+        let html = res.body;
+        if (browser) {
+          try {
+            html = await renderHtml(browser, res, target);
+          } catch (err) {
+            issues.push(`render failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        const $ = cheerio.load(html);
         title = $('title').first().text().trim() || null;
         description = $('meta[name="description"]').attr('content')?.trim() || null;
         if (!title) {
@@ -123,6 +134,9 @@ export async function runCrawl(run: RunWithTarget): Promise<RunnerResult> {
       redirectChain: chain, foundOn: item.foundOn ?? null, issues });
     await progress(run.id, `Crawled ${item.url}`, crawled, Math.min(cfg.maxPages, crawled + queue.length));
     await sleep(delay);
+  }
+  } finally {
+    await browser?.close();
   }
 
   await prisma.crawlPage.createMany({ data: pageRows });

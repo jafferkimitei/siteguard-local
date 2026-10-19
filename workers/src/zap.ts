@@ -1,10 +1,11 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { reportsDir, type Target } from '@siteguard/database';
+import type { Target } from '@siteguard/database';
 import { assertDestinationAllowed } from '@siteguard/safety';
 import type { Severity } from '@siteguard/contracts';
 import { isCancelled, sleep, type FindingInput } from './common';
+import { killContainer, makeWorkDir, removeDir, watchChild } from './proc';
 
 const IMAGE = 'ghcr.io/zaproxy/zaproxy:stable';
 const RISK: Record<string, Severity> = { '3': 'HIGH', '2': 'MEDIUM', '1': 'LOW', '0': 'INFO' };
@@ -16,29 +17,23 @@ export async function runZap(runId: string, target: Target, mode: 'baseline' | '
     throw new Error('Active scanning requires the target to be marked "active scans authorised"');
   await assertDestinationAllowed(target.baseUrl, target);
 
-  const workDir = join(reportsDir, '.work', `${runId}-zap`);
-  mkdirSync(workDir, { recursive: true });
-  chmodSync(workDir, 0o777);
+  const workDir = makeWorkDir(`${runId}-zap`);
   const name = `sg-zap-${runId}`;
   const script = mode === 'active' ? 'zap-full-scan.py' : 'zap-baseline.py';
   const child = spawn('docker', ['run', '--rm', '--name', name, '--network', 'host', '-v', `${workDir}:/zap/wrk:rw`, IMAGE,
     script, '-t', new URL(target.baseUrl).origin, '-J', 'report.json', '-I', '-m', '3']);
-  let stderr = '';
-  child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-2000)));
-  let exit: number | null = null;
-  child.on('exit', (c) => (exit = c ?? -1));
-  child.on('error', (e) => { stderr += e.message; exit = -1; });
+  const proc = watchChild(child);
 
   let cancelled = false;
-  while (exit === null) {
+  while (proc.exitCode() === null) {
     await sleep(500);
     if (await isCancelled(runId)) {
       cancelled = true;
-      spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+      killContainer(name);
       break;
     }
   }
-  if (cancelled) { rmSync(workDir, { recursive: true, force: true }); return { findings: [], cancelled }; }
+  if (cancelled) { removeDir(workDir); return { findings: [], cancelled }; }
 
   const findings: FindingInput[] = [];
   try {
@@ -52,9 +47,9 @@ export async function runZap(runId: string, target: Target, mode: 'baseline' | '
       }
     }
   } catch {
-    rmSync(workDir, { recursive: true, force: true });
-    throw new Error(`ZAP produced no report (exit ${exit}). ${stderr.trim().slice(-400)}`);
+    removeDir(workDir);
+    throw new Error(`ZAP produced no report (exit ${proc.exitCode()}). ${proc.stderr().trim().slice(-400)}`);
   }
-  rmSync(workDir, { recursive: true, force: true });
+  removeDir(workDir);
   return { findings, cancelled: false };
 }

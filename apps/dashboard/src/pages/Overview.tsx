@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api';
-import { Badge, Card, Stat, TYPE_LABEL, ms, when } from '../ui';
+import { Badge, Card, Stat, TYPE_LABEL, runResult, when } from '../ui';
 
 export default function Overview() {
   const [d, setD] = useState<any>(null);
@@ -57,7 +57,7 @@ export default function Overview() {
                 <tr key={r.id}>
                   <td><Link className="text-accent" to={`/runs/${r.id}`}>{TYPE_LABEL[r.type as keyof typeof TYPE_LABEL]}</Link></td>
                   <td>{r.target.name}</td><td><Badge kind={r.status} /></td>
-                  <td className="text-muted">{r.summary ? (r.type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req` : r.type === 'CRAWL' ? `${r.summary.pagesCrawled} pages` : `${r.summary.findings} findings`) : '—'}</td>
+                  <td className="text-muted">{runResult(r)}</td>
                   <td className="text-muted">{when(r.createdAt)}</td>
                 </tr>
               ))}

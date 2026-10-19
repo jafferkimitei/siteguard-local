@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Run } from './api';
 
 export const SEV_COLOR: Record<string, string> = {
   CRITICAL: 'bg-red-600/25 text-red-300', HIGH: 'bg-red-500/20 text-red-300', MEDIUM: 'bg-orange-500/20 text-orange-300',
@@ -57,3 +58,10 @@ export const ms = (n?: number) => (n === undefined || n === null ? '—' : n >= 
 export const pct = (n?: number) => (n === undefined ? '—' : `${(n * 100).toFixed(n > 0 && n < 0.01 ? 2 : 1)}%`);
 export const when = (d?: string | null) => (d ? new Date(d).toLocaleString() : '—');
 export const TYPE_LABEL = { LOAD: 'Load test', CRAWL: 'Crawl', SECURITY: 'Security scan' } as const;
+
+/** One-line result text for a run, shared by every run table. */
+export const runResult = (r: Pick<Run, 'type' | 'summary' | 'error'>) =>
+  !r.summary ? r.error ?? '—'
+  : r.type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${pct(r.summary.errorRate)} err`
+  : r.type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken`
+  : `${r.summary.findings} findings`;

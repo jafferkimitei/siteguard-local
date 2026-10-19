@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq';
 import { prisma } from '@siteguard/database';
 import { QUEUE_NAME, type RunJobData } from '@siteguard/contracts';
-import { audit, isCancelled, publish, redis, type RunnerResult, type RunWithTarget } from './common';
+import { audit, errMessage, isCancelled, publish, redis, type RunnerResult, type RunWithTarget } from './common';
 import { runLoad } from './load';
 import { runCrawl } from './crawler';
 import { runSecurity } from './security';
@@ -31,7 +31,7 @@ async function handleRun(runId: string) {
     else result = await runSecurity(run);
     await finish(runId, result.status, result.summary, result.error);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errMessage(err);
     console.error(`[run ${runId}] failed:`, message);
     await finish(runId, 'FAILED', undefined, message);
   }

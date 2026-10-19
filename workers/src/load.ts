@@ -1,10 +1,11 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { chmodSync, closeSync, mkdirSync, openSync, readSync, rmSync, writeFileSync, fstatSync } from 'node:fs';
+import { chmodSync, closeSync, openSync, readSync, writeFileSync, fstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { LoadConfig, type LoadSummary, type MetricPointDTO } from '@siteguard/contracts';
-import { env, prisma, reportsDir } from '@siteguard/database';
+import { env, prisma } from '@siteguard/database';
 import { assertDestinationAllowed, evaluateStopRules, percentile, validateLoadPlan } from '@siteguard/safety';
 import { audit, isCancelled, progress, publish, sleep, type RunnerResult, type RunWithTarget } from './common';
+import { killContainer, makeWorkDir, removeDir, watchChild } from './proc';
 
 const PRIVATE_CIDRS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8'];
 const METADATA_CIDRS = ['169.254.0.0/16'];
@@ -96,9 +97,7 @@ export async function runLoad(run: RunWithTarget): Promise<RunnerResult> {
   const urls = cfg.paths.map((p) => new URL(p, target.baseUrl).toString());
   for (const u of new Set(urls)) await assertDestinationAllowed(u, target);
 
-  const workDir = join(reportsDir, '.work', run.id);
-  mkdirSync(workDir, { recursive: true });
-  chmodSync(workDir, 0o777); // the k6 container runs as an unprivileged user
+  const workDir = makeWorkDir(run.id);
   writeFileSync(join(workDir, 'script.js'), buildK6Script());
   const outFile = join(workDir, 'out.ndjson');
   writeFileSync(outFile, '');
@@ -133,18 +132,10 @@ export async function runLoad(run: RunWithTarget): Promise<RunnerResult> {
   await audit(run.id, 'engine', `k6 started (${useLocal ? 'local binary' : 'docker ' + env.K6_DOCKER_IMAGE})`, { ...plan });
   await progress(run.id, `k6 started: up to ${cfg.rps} req/s for ${cfg.durationSec}s`);
 
-  let stderr = '';
-  child.stderr?.on('data', (d) => (stderr = (stderr + d).slice(-4000)));
-  let exitCode: number | null = null;
-  child.on('exit', (code) => (exitCode = code ?? -1));
-  child.on('error', (e) => {
-    stderr += `\nspawn error: ${e.message}`;
-    exitCode = -1;
-  });
-
+  const proc = watchChild(child, 4000);
   const kill = () => {
     if (useLocal) child.kill('SIGTERM');
-    else spawnSync('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
+    else killContainer(containerName);
   };
 
   const tail = new Tailer(outFile);
@@ -241,7 +232,7 @@ export async function runLoad(run: RunWithTarget): Promise<RunnerResult> {
   };
 
   let lastCheck = 0;
-  while (exitCode === null) {
+  while (proc.exitCode() === null) {
     await sleep(250);
     for (const line of tail.read()) ingest(line);
     if (await isCancelled(run.id)) {
@@ -265,16 +256,17 @@ export async function runLoad(run: RunWithTarget): Promise<RunnerResult> {
     }
   }
   // Give the process a moment to exit, then drain whatever it wrote last.
-  for (let i = 0; i < 20 && exitCode === null; i++) await sleep(100);
+  for (let i = 0; i < 20 && proc.exitCode() === null; i++) await sleep(100);
   await sleep(200);
   for (const line of tail.read()) ingest(line);
   tail.close();
   await flush(true);
 
+  const exitCode = proc.exitCode();
   if (outcome === 'COMPLETED' && exitCode !== 0 && exitCode !== 99) {
     // 99 = threshold failure in k6; we define none, so any non-zero exit is an engine error.
-    rmSync(workDir, { recursive: true, force: true });
-    throw new Error(`k6 exited with code ${exitCode}: ${stderr.trim().slice(-800) || 'no output'}`);
+    removeDir(workDir);
+    throw new Error(`k6 exited with code ${exitCode}: ${proc.stderr().trim().slice(-800) || 'no output'}`);
   }
 
   allDurations.sort((a, b) => a - b);
@@ -297,6 +289,6 @@ export async function runLoad(run: RunWithTarget): Promise<RunnerResult> {
     durationSec: elapsed,
     abortReason,
   };
-  rmSync(workDir, { recursive: true, force: true });
+  removeDir(workDir);
   return { status: outcome, summary: summary as never, error: abortReason };
 }

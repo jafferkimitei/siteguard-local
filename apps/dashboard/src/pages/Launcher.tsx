@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, estimateRequests, type Run, type RunType, type Target } from '../api';
-import { Badge, Btn, Card, ErrorBox, Field, TYPE_LABEL, ms, when } from '../ui';
+import { Badge, Btn, Card, ErrorBox, Field, TYPE_LABEL, runResult, when } from '../ui';
 
 const COPY: Record<RunType, string> = {
   LOAD: 'Ramps up to a fixed arrival rate using k6. The target\'s req/s ceiling, duration limit and request budget are enforced before the run starts; error-rate and latency stop rules end it early.',
@@ -81,7 +81,7 @@ export default function Launcher({ type }: { type: RunType }) {
         {runs.length === 0 ? <p className="text-muted">No runs yet.</p> : (
           <table><thead><tr><th>When</th><th>Target</th><th>Status</th><th>Result</th></tr></thead><tbody>
             {runs.map((r) => (<tr key={r.id}><td><Link className="text-accent" to={`/runs/${r.id}`}>{when(r.createdAt)}</Link></td><td>{r.target?.name}</td><td><Badge kind={r.status} /></td>
-              <td className="text-muted">{r.summary ? (type === 'LOAD' ? `p95 ${ms(r.summary.p95)} · ${r.summary.totalRequests} req · ${(r.summary.errorRate * 100).toFixed(1)}% err` : type === 'CRAWL' ? `${r.summary.pagesCrawled} pages · ${r.summary.brokenLinks} broken` : `${r.summary.findings} findings`) : r.error ?? '—'}</td></tr>))}
+              <td className="text-muted">{runResult(r)}</td></tr>))}
           </tbody></table>
         )}
       </Card>

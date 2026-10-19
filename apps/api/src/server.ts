@@ -5,8 +5,8 @@ import { Queue } from 'bullmq';
 import Fastify from 'fastify';
 import { Redis } from 'ioredis';
 import { ZodError, z } from 'zod';
-import { CreateRun, FindingStatus, QUEUE_NAME, TargetInput, TargetPatch, cancelKey, runChannel, type RunJobData } from '@siteguard/contracts';
-import { env, prisma, reportsDir, type Target } from '@siteguard/database';
+import { CreateRun, FindingStatus, QUEUE_NAME, TargetInput, TargetPatch, cancelKey, runChannel, sortBySeverity, type RunJobData } from '@siteguard/contracts';
+import { audit, env, prisma, reportsDir } from '@siteguard/database';
 import { SafetyError, assertDestinationAllowed, validateLoadPlan } from '@siteguard/safety';
 import { runToCsv, runToHtml, type FullRun } from './report';
 
@@ -25,8 +25,6 @@ app.setErrorHandler((err: any, _req, reply) => {
 });
 
 const id = (req: { params: unknown }) => z.object({ id: z.string() }).parse(req.params).id;
-const audit = (runId: string | null, kind: string, message: string, data?: object) =>
-  prisma.auditEvent.create({ data: { runId, kind, message, data: data as never } });
 
 // ---------------- health ----------------
 app.get('/health', async (_req, reply) => {
@@ -96,10 +94,9 @@ const fullRun = (runId: string) =>
     include: { target: true, metrics: { orderBy: { ts: 'asc' } }, pages: { orderBy: { id: 'asc' } }, findings: { orderBy: { createdAt: 'asc' } } },
   });
 
-const SEV_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 app.get('/runs/:id', async (req) => {
   const run = await fullRun(id(req));
-  run.findings.sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity));
+  sortBySeverity(run.findings);
   return run;
 });
 
@@ -152,7 +149,7 @@ app.get('/findings', async (req) => {
     where: { targetId: q.targetId, status: q.status, severity: q.severity },
     orderBy: { createdAt: 'desc' }, take: q.limit, include: { target: { select: { name: true } } },
   });
-  return rows.sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity));
+  return sortBySeverity(rows);
 });
 
 app.patch('/findings/:id', async (req) => {
@@ -204,4 +201,3 @@ app.get('/runs/:id/audit', async (req) => prisma.auditEvent.findMany({ where: { 
 
 const port = env.API_PORT;
 await app.listen({ port, host: '127.0.0.1' });
-export type { Target };
